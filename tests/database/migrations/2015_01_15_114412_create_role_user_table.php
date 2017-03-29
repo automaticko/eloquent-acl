@@ -1,0 +1,1 @@
+../../../vendor/ultraware/roles/migrations/2015_01_15_114412_create_role_user_table.php

@@ -1,0 +1,1 @@
+../../../vendor/ultraware/roles/migrations/2015_02_09_132439_create_permission_user_table.php
