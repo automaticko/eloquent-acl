@@ -5,14 +5,16 @@ namespace Automaticko\ACL\Console\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Database\Connection as DB;
 use Illuminate\Config\Repository as Config;
-use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Foundation\Application as App;
+use Automaticko\ACL\Console\Commands\Import\Roles;
 use Automaticko\ACL\Console\Commands\Import\Permissions;
+use Automaticko\ACL\Console\Commands\Import\PermissionRoles;
+use Illuminate\Support\Collection;
 
 class Import extends Command
 {
     use RequirementsTrait;
-    const DEFAULT_ROLE_LEVEL = 1;
-    const COMMAND            = 'import';
+    const COMMAND = 'import';
 
     /**
      * The name and signature of the console command.
@@ -43,21 +45,14 @@ class Import extends Command
     protected $schema;
 
     /**
-     * @var DB \Illuminate\Database\Connection
-     */
-    protected $db;
-
-    /**
      * Create a new command instance.
      *
      * @param Config $config
-     * @param DB     $db
      */
     public function __construct(Config $config, DB $db)
     {
         parent::__construct();
         $this->config = $config;
-        $this->db     = $db;
         $this->schema = $db->getSchemaBuilder();
     }
 
@@ -72,270 +67,137 @@ class Import extends Command
             return $error_level;
         }
 
-        $this->roleClass       = $this->config->get('acl.models.role');
-        $this->permissionClass = $this->config->get('acl.models.permission');
-
-        $raw_permissions = $this->config->get('acl.import.permissions', []);
-        $raw_roles       = $this->config->get('acl.import.roles', []);
-
-        $raw_permissions = is_array($raw_permissions) ? $raw_permissions : [];
-        $raw_roles       = is_array($raw_roles) ? $raw_roles : [];
-
-        $permissions_handler = new Permissions();
-        $permissions = $permissions_handler->set($raw_permissions, $this->permissionClass);
-
-        //$permissions = $this->setPermissions($raw_permissions);
-        $roles       = $this->setRoles($raw_roles);
-
-        $this->setPermissionRoles($raw_roles, $permissions, $roles);
+        $permissions = $this->handlePermissions();
+        $roles = $this->handleRoles();
+        $this->handlePermissionRoles($roles, $permissions);
 
         return 0;
     }
 
-    protected function setPermissions(array $raw_permissions)
+    protected function handlePermissions()
     {
-        $permission_class     = $this->permissionClass;
-        $raw_permission_names = array_keys($raw_permissions);
+        $this->permissionClass = $this->config->get('acl.models.permission');
+        $raw_permissions       = $this->config->get('acl.import.permissions', []);
+        $raw_permissions       = is_array($raw_permissions) ? $raw_permissions : [];
 
-        $db_permissions      = $permission_class::all()->keyBy('name');
-        $db_permission_names = $db_permissions->keys()->toArray();
+        $permissions_handler = new Permissions();
+        $permissions         = $permissions_handler->set($raw_permissions, $this->permissionClass);
+        $this->reportPermissions($permissions_handler->getInserted(),
+            $permissions_handler->getUpdated(),
+            $permissions_handler->getDeleted(),
+            $permissions_handler->getIgnored());
 
-        $update_permission_names = array_intersect($raw_permission_names, $db_permission_names);
-        $insert_permission_names = array_diff($raw_permission_names, $db_permission_names);
-        $delete_permission_names = array_diff($db_permission_names, $raw_permission_names);
-        $ignore_permission_names = [];
+        return $permissions;
+    }
 
-        foreach ($insert_permission_names as $permission_name) {
-            $raw_permission = $raw_permissions[$permission_name];
-            $permission     = new $permission_class();
-            $permission->setRawAttributes([
-                'name'        => $permission_name,
-                'slug'        => !empty($raw_permission['slug']) ? $raw_permission['slug'] : $permission_name,
-                'description' => !empty($raw_permission['description']) ? $raw_permission['description'] : null,
-                'model'       => !empty($raw_permission['model']) ? $raw_permission['model'] : null,
-            ]);
-            $permission->save();
+    protected function handleRoles()
+    {
+        $this->roleClass = $this->config->get('acl.models.role');
+        $raw_roles       = $this->config->get('acl.import.roles', []);
+        $raw_roles       = is_array($raw_roles) ? $raw_roles : [];
 
-            $permission_id = $permission->id;
+        $roles_handler = new Roles();
+        $roles         = $roles_handler->set($raw_roles, $this->roleClass);
+        $this->reportRoles($roles_handler->getInserted(),
+            $roles_handler->getUpdated(),
+            $roles_handler->getDeleted(),
+            $roles_handler->getIgnored());
+
+        return $roles;
+    }
+
+    protected function handlePermissionRoles(Collection $roles, Collection $permissions)
+    {
+        $raw_roles = $this->config->get('acl.import.roles', []);
+        $raw_roles = is_array($raw_roles) ? $raw_roles : [];
+
+        $permission_roles_handler = App::getInstance()->make(PermissionRoles::class);
+        $permission_roles_handler->set($raw_roles, $roles, $permissions);
+        $this->reportPermissionRoles($permission_roles_handler->getInserted(),
+            $permission_roles_handler->getDeleted(),
+            $permission_roles_handler->getIgnored(),
+            $permission_roles_handler->getErrors());
+    }
+
+    protected function reportPermissions($inserted, $updated, $deleted, $ignored)
+    {
+        foreach ($inserted as $permission) {
             $this->info(trans('acl::acl.import.permission.insert',
-                ['permission_name' => $permission_name, 'permission_id' => $permission_id]));
-
-            $db_permissions->put($permission_name, $permission);
+                ['permission_name' => $permission->name, 'permission_id' => $permission->id]));
         }
 
-        foreach ($update_permission_names as $permission_name) {
-            $raw_permission = $raw_permissions[$permission_name];
-            $db_permission  = $db_permissions[$permission_name];
-            $permission_id  = $db_permission->id;
-
-            $name        = !empty($raw_permission['name']) ? $raw_permission['name'] : $permission_name;
-            $description = !empty($raw_permission['description']) ? $raw_permission['description'] : null;
-            $model       = !empty($raw_permission['model']) ? $raw_permission['model'] : null;
-
-            $db_permission->name        = $name;
-            $db_permission->description = $description;
-            $db_permission->model       = $model;
-            if ($db_permission->isDirty()) {
-                $db_permission->save();
-                $this->info(trans('acl::acl.import.permission.update',
-                    ['permission_name' => $permission_name, 'permission_id' => $permission_id]));
-            } else {
-                $ignore_permission_names[] = $permission_name;
-            }
+        foreach ($updated as $permission) {
+            $this->info(trans('acl::acl.import.permission.update',
+                ['permission_name' => $permission->name, 'permission_id' => $permission->id]));
         }
 
-        foreach ($delete_permission_names as $permission_name) {
-            $permission_id = $db_permissions[$permission_name]->id;
-            $permission_class::where('name', 'like', $permission_name)->delete();
-            $db_permissions->forget($permission_name);
-            $this->error(trans('acl::acl.import.permission.delete',
-                ['permission_name' => $permission_name, 'permission_id' => $permission_id]));
+        foreach ($deleted as $permission) {
+            $this->info(trans('acl::acl.import.permission.delete',
+                ['permission_name' => $permission->name, 'permission_id' => $permission->id]));
         }
 
         if ($this->option('v')) {
-            foreach ($ignore_permission_names as $permission_name) {
-                $permission_id = $db_permissions[$permission_name]->id;
-                $this->line(trans('acl::acl.import.permission.ignore',
-                    ['permission_name' => $permission_name, 'permission_id' => $permission_id]));
+            foreach ($ignored as $permission) {
+                $this->info(trans('acl::acl.import.permission.ignore',
+                    ['permission_name' => $permission->name, 'permission_id' => $permission->id]));
             }
         }
-
-        return $db_permissions;
     }
 
-    protected function setRoles(array $raw_roles)
+    protected function reportRoles($inserted, $updated, $deleted, $ignored)
     {
-        $role_class     = $this->roleClass;
-        $raw_role_slugs = array_keys($raw_roles);
-
-        $db_roles = $role_class::all()->keyBy('slug');
-
-        $db_role_slugs = $db_roles->keys()->toArray();
-
-        $update_role_slugs = array_intersect($raw_role_slugs, $db_role_slugs);
-        $insert_role_slugs = array_diff($raw_role_slugs, $db_role_slugs);
-        $delete_role_slugs = array_diff($db_role_slugs, $raw_role_slugs);
-        $ignore_role_slugs = [];
-
-        foreach ($insert_role_slugs as $role_slug) {
-            $raw_role = $raw_roles[$role_slug];
-
-            $role = new $role_class();
-            $role->setRawAttributes([
-                'slug'        => $role_slug,
-                'name'        => !empty($raw_role['name']) ? $raw_role['name'] : $role_slug,
-                'description' => !empty($raw_role['description']) ? $raw_role['description'] : null,
-                'level'       => isset($raw_role['level']) ? $raw_role['level'] : self::DEFAULT_ROLE_LEVEL,
-            ]);
-            $role->save();
-            $role_id = $role->id;
-            $this->info(trans('acl::acl.import.role.insert', ['role_slug' => $role_slug, 'role_id' => $role_id]));
-
-            $db_roles->put($role_slug, $role);
+        foreach ($inserted as $role) {
+            $this->info(trans('acl::acl.import.role.insert',
+                ['role_name' => $role->name, 'role_id' => $role->id]));
         }
 
-        foreach ($update_role_slugs as $role_slug) {
-            $raw_role = $raw_roles[$role_slug];
-            $db_role  = $db_roles[$role_slug];
-            $role_id  = $db_role->id;
-
-            $name        = !empty($raw_role['name']) ? $raw_role['name'] : $role_slug;
-            $description = !empty($raw_role['description']) ? $raw_role['description'] : null;
-            $level       = !empty($raw_role['level']) ? $raw_role['level'] : null;
-
-            $db_role->name        = $name;
-            $db_role->description = $description;
-            $db_role->level       = $level;
-            if ($db_role->isDirty()) {
-                $db_role->save();
-                $this->info(trans('acl::acl.import.role.update',
-                    ['role_slug' => $role_slug, 'role_id' => $role_id]));
-            } else {
-                $ignore_role_slugs[] = $role_slug;
-            }
+        foreach ($updated as $role) {
+            $this->info(trans('acl::acl.import.role.update',
+                ['role_name' => $role->name, 'role_id' => $role->id]));
         }
 
-        foreach ($delete_role_slugs as $role_slug) {
-            $role_class::where('slug', 'like', $role_slug)->delete();
-            $this->error(trans('acl::acl.import.role.delete',
-                ['role_slug' => $role_slug, 'role_id' => $db_roles[$role_slug]]));
+        foreach ($deleted as $role) {
+            $this->info(trans('acl::acl.import.role.delete',
+                ['role_name' => $role->name, 'role_id' => $role->id]));
         }
 
         if ($this->option('v')) {
-            foreach ($ignore_role_slugs as $role_slug) {
-                $role_id = $db_roles[$role_slug]->id;
-                $this->line(trans('acl::acl.import.role.ignore',
-                    ['role_slug' => $role_slug, 'role_id' => $role_id]));
+            foreach ($ignored as $role) {
+                $this->info(trans('acl::acl.import.role.ignore',
+                    ['role_name' => $role->name, 'role_id' => $role->id]));
             }
         }
-
-        return $db_roles;
     }
 
-    protected function setPermissionRoles(array $raw_roles, Collection $permissions, Collection $roles)
+    protected function reportPermissionRoles($inserted, $deleted, $ignored, $errors)
     {
-        $query = $this->db->table('permission_role');
-        $query->select(['permission_role.*', 'roles.slug AS role_slug', 'permissions.slug AS permission_slug']);
-        $query->join('roles', 'role_id', '=', 'roles.id');
-        $query->join('permissions', 'permission_id', '=', 'permissions.id');
-
-        $db_permission_roles       = $query->get();
-        $db_permission_roles_slugs = [];
-
-        // Group permissions by role
-        foreach ($db_permission_roles as $db_permission_role) {
-            $db_permission_roles_slugs[$db_permission_role->role_slug][] = $db_permission_role->permission_slug;
-        }
-
-        $ignore_permission_roles_slugs = [];
-        $insert_permission_roles_slugs = [];
-        $delete_permission_roles_slugs = [];
-        $error_permission_slugs        = [];
-        foreach ($raw_roles as $role_slug => $raw_role) {
-            $permission_slugs     = [];
-            $raw_permission_slugs = !empty($raw_role['permissions']) ? $raw_role['permissions'] : [];
-
-            // Sanitize permissions
-            $errors = [];
-            foreach ($raw_permission_slugs as $index => $permission_slug) {
-                if ($permissions->has($permission_slug)) {
-                    $permission_slugs[] = $permission_slug;
-                } else {
-                    $errors[] = $permission_slug;
-                }
-            }
-
-            $ignore = [];
-            $delete = [];
-
-            if (!empty($db_permission_roles_slugs[$role_slug])) {
-
-                $permission_role_slugs = $db_permission_roles_slugs[$role_slug];
-
-                $insert = array_diff($permission_slugs, $permission_role_slugs);
-                $delete = array_diff($permission_role_slugs, $permission_slugs);
-                $ignore = array_intersect($permission_role_slugs, $permission_slugs);
-            } else {
-                $insert = $permission_slugs;
-            }
-
-            $insert_permission_roles_slugs[$role_slug] = $insert;
-            $delete_permission_roles_slugs[$role_slug] = $delete;
-            $ignore_permission_roles_slugs[$role_slug] = $ignore;
-            $error_permission_slugs[$role_slug]        = $errors;
-        }
-
-        $now = date('Y-m-d H:i:s');
-
-        foreach ($insert_permission_roles_slugs as $role_slug => $permission_slugs) {
-            $role_id = $roles[$role_slug]->id;
-            foreach ($permission_slugs as $permission_slug) {
-                $permission_id = $permissions[$permission_slug]->id;
-                $this->db->table('permission_role')->insert([
-                    'role_id'       => $role_id,
-                    'permission_id' => $permission_id,
-                    'created_at'    => $now,
-                    'updated_at'    => $now,
-                ]);
-
+        foreach ($inserted as $role_name => $permission_names) {
+            foreach ($permission_names as $permission_name) {
                 $this->info(trans('acl::acl.import.permission_role.insert',
-                    ['role_slug' => $role_slug, 'permission_slug' => $permission_slug]));
+                    ['role_name' => $role_name, 'permission_name' => $permission_name]));
             }
         }
 
-        foreach ($delete_permission_roles_slugs as $role_slug => $permission_slugs) {
-            $role_id = $roles[$role_slug]->id;
-            foreach ($permission_slugs as $permission_slug) {
-                $permission_id = $permissions[$permission_slug]->id;
-
-                $this->db->table('permission_role')
-                    ->where('role_id', $role_id)
-                    ->where('permission_id', $permission_id)
-                    ->delete();
-
+        foreach ($deleted as $role_name => $permission_names) {
+            foreach ($permission_names as $permission_name) {
                 $this->error(trans('acl::acl.import.permission_role.delete',
-                    ['role_slug' => $role_slug, 'permission_slug' => $permission_slug]));
+                    ['role_name' => $role_name, 'permission_name' => $permission_name]));
             }
         }
 
         if ($this->option('v')) {
-            foreach ($ignore_permission_roles_slugs as $role_slug => $permission_slugs) {
-                $role_id = $roles[$role_slug]->id;
-                foreach ($permission_slugs as $permission_slug) {
-                    $permission_id = $permissions[$permission_slug]->id;
+            foreach ($ignored as $role_name => $permission_names) {
+                foreach ($permission_names as $permission_name) {
                     $this->line(trans('acl::acl.import.permission_role.ignore',
-                        ['role_slug' => $role_slug, 'permission_slug' => $permission_slug]));
+                        ['role_name' => $role_name, 'permission_name' => $permission_name]));
                 }
             }
         }
 
-        foreach ($error_permission_slugs as $role_slug => $permission_slugs) {
-            foreach ($permission_slugs as $permission_slug) {
+        foreach ($errors as $role_name => $permission_names) {
+            foreach ($permission_names as $permission_name) {
                 $this->error(trans('acl::acl.import.permission_role.error',
-                    [
-                        'role_slug'       => $role_slug,
-                        'permission_slug' => $permission_slug,
-                    ]));
+                    ['role_name' => $role_name, 'permission_name' => $permission_name]));
             }
         }
     }

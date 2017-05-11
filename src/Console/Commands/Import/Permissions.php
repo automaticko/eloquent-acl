@@ -68,7 +68,7 @@ class Permissions
 
         $this->ignored = $this->ignore($permissions, $this->updated, $this->deleted);
 
-        return new Collection(array_merge($this->inserted->toArray(), $this->updated->toArray(), $this->ignored->toArray()));
+        return new Collection(array_merge($this->inserted->all(), $this->updated->all(), $this->ignored->all()));
     }
 
     protected function insert(array $insert_names)

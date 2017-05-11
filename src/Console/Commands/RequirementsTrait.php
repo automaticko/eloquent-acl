@@ -2,12 +2,6 @@
 
 namespace Automaticko\ACL\Console\Commands;
 
-use Cocur\Slugify\Slugify;
-use Illuminate\Console\Command;
-use Illuminate\Database\Connection as DB;
-use Illuminate\Config\Repository as Config;
-use Illuminate\Database\Eloquent\Collection;
-
 Trait RequirementsTrait
 {
     protected function failsRequirements($command)
