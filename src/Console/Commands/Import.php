@@ -6,6 +6,7 @@ use Illuminate\Console\Command;
 use Illuminate\Database\Connection as DB;
 use Illuminate\Config\Repository as Config;
 use Illuminate\Database\Eloquent\Collection;
+use Automaticko\ACL\Console\Commands\Import\Permissions;
 
 class Import extends Command
 {
@@ -80,7 +81,10 @@ class Import extends Command
         $raw_permissions = is_array($raw_permissions) ? $raw_permissions : [];
         $raw_roles       = is_array($raw_roles) ? $raw_roles : [];
 
-        $permissions = $this->setPermissions($raw_permissions);
+        $permissions_handler = new Permissions();
+        $permissions = $permissions_handler->set($raw_permissions, $this->permissionClass);
+
+        //$permissions = $this->setPermissions($raw_permissions);
         $roles       = $this->setRoles($raw_roles);
 
         $this->setPermissionRoles($raw_roles, $permissions, $roles);
@@ -91,22 +95,22 @@ class Import extends Command
     protected function setPermissions(array $raw_permissions)
     {
         $permission_class     = $this->permissionClass;
-        $raw_permission_slugs = array_keys($raw_permissions);
+        $raw_permission_names = array_keys($raw_permissions);
 
-        $db_permissions      = $permission_class::all()->keyBy('slug');
-        $db_permission_slugs = $db_permissions->keys()->toArray();
+        $db_permissions      = $permission_class::all()->keyBy('name');
+        $db_permission_names = $db_permissions->keys()->toArray();
 
-        $update_permission_slugs = array_intersect($raw_permission_slugs, $db_permission_slugs);
-        $insert_permission_slugs = array_diff($raw_permission_slugs, $db_permission_slugs);
-        $delete_permission_slugs = array_diff($db_permission_slugs, $raw_permission_slugs);
-        $ignore_permission_slugs = [];
+        $update_permission_names = array_intersect($raw_permission_names, $db_permission_names);
+        $insert_permission_names = array_diff($raw_permission_names, $db_permission_names);
+        $delete_permission_names = array_diff($db_permission_names, $raw_permission_names);
+        $ignore_permission_names = [];
 
-        foreach ($insert_permission_slugs as $permission_slug) {
-            $raw_permission = $raw_permissions[$permission_slug];
+        foreach ($insert_permission_names as $permission_name) {
+            $raw_permission = $raw_permissions[$permission_name];
             $permission     = new $permission_class();
             $permission->setRawAttributes([
-                'slug'        => $permission_slug,
-                'name'        => !empty($raw_permission['name']) ? $raw_permission['name'] : $permission_slug,
+                'name'        => $permission_name,
+                'slug'        => !empty($raw_permission['slug']) ? $raw_permission['slug'] : $permission_name,
                 'description' => !empty($raw_permission['description']) ? $raw_permission['description'] : null,
                 'model'       => !empty($raw_permission['model']) ? $raw_permission['model'] : null,
             ]);
@@ -114,17 +118,17 @@ class Import extends Command
 
             $permission_id = $permission->id;
             $this->info(trans('acl::acl.import.permission.insert',
-                ['permission_slug' => $permission_slug, 'permission_id' => $permission_id]));
+                ['permission_name' => $permission_name, 'permission_id' => $permission_id]));
 
-            $db_permissions->put($permission_slug, $permission);
+            $db_permissions->put($permission_name, $permission);
         }
 
-        foreach ($update_permission_slugs as $permission_slug) {
-            $raw_permission = $raw_permissions[$permission_slug];
-            $db_permission  = $db_permissions[$permission_slug];
+        foreach ($update_permission_names as $permission_name) {
+            $raw_permission = $raw_permissions[$permission_name];
+            $db_permission  = $db_permissions[$permission_name];
             $permission_id  = $db_permission->id;
 
-            $name        = !empty($raw_permission['name']) ? $raw_permission['name'] : $permission_slug;
+            $name        = !empty($raw_permission['name']) ? $raw_permission['name'] : $permission_name;
             $description = !empty($raw_permission['description']) ? $raw_permission['description'] : null;
             $model       = !empty($raw_permission['model']) ? $raw_permission['model'] : null;
 
@@ -134,25 +138,25 @@ class Import extends Command
             if ($db_permission->isDirty()) {
                 $db_permission->save();
                 $this->info(trans('acl::acl.import.permission.update',
-                    ['permission_name' => $permission_slug, 'permission_id' => $permission_id]));
+                    ['permission_name' => $permission_name, 'permission_id' => $permission_id]));
             } else {
-                $ignore_permission_slugs[] = $permission_slug;
+                $ignore_permission_names[] = $permission_name;
             }
         }
 
-        foreach ($delete_permission_slugs as $permission_slug) {
-            $permission_id = $db_permissions[$permission_slug]->id;
-            $permission_class::where('name', 'like', $permission_slug)->delete();
-            $db_permissions->forget($permission_slug);
+        foreach ($delete_permission_names as $permission_name) {
+            $permission_id = $db_permissions[$permission_name]->id;
+            $permission_class::where('name', 'like', $permission_name)->delete();
+            $db_permissions->forget($permission_name);
             $this->error(trans('acl::acl.import.permission.delete',
-                ['permission_slug' => $permission_slug, 'permission_id' => $permission_id]));
+                ['permission_name' => $permission_name, 'permission_id' => $permission_id]));
         }
 
         if ($this->option('v')) {
-            foreach ($ignore_permission_slugs as $permission_slug) {
-                $permission_id = $db_permissions[$permission_slug]->id;
+            foreach ($ignore_permission_names as $permission_name) {
+                $permission_id = $db_permissions[$permission_name]->id;
                 $this->line(trans('acl::acl.import.permission.ignore',
-                    ['permission_slug' => $permission_slug, 'permission_id' => $permission_id]));
+                    ['permission_name' => $permission_name, 'permission_id' => $permission_id]));
             }
         }
 
