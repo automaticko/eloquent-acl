@@ -10,6 +10,7 @@ Simple package that enforces Access Control List using Eloquent.
     - [Composer](#composer)
     - [Service Provider](#service-provider)
     - [Config File](#config-file)
+    - [Environment variables](#environment-variables)
     - [Migrations](#migrations)
 - [Usage](#usage)
     - [Middlewares](#middlewares)
@@ -23,7 +24,7 @@ Simple package that enforces Access Control List using Eloquent.
 
 ## Overview
 
-Many, many times. it was a good decision to name routes after views. It allowed me to easily identify which view
+Many, many times, it was a good decision to name routes after views. It allowed me to easily identify which view
 should be called in a certain controller method, it also, worked the opposite way, while exploring the views,
 in most cases i could easily identify which controller was loading that view.
 
@@ -104,6 +105,15 @@ Run these commands inside your terminal.
     php artisan vendor:publish --provider="Automaticko\ACL\ACLServiceProvider" --tag=config
     
 Make sure to check Ultraware [Ultraware/Roles](https://github.com/ultraware/roles) package documentation for publish options.
+
+###Environment variables
+There are 3 environment variables used in the acl config file (config file doesn't need to be published in order for these to work).
+
+Variable| Default value | Description
+-------------------|---------------|------------
+ACL_ENABLED| True | Enable acl middleware
+ACL_IMPORT_ENABLED| True|Enable acl:import command
+ACL_EXPORT_ENABLED| True|Enable acl:export command
 
 ### Migrations
 
