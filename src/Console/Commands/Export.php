@@ -85,7 +85,7 @@ class Export extends Command
         $raw_permissions = [];
         foreach ($permissions as $permission) {
             $raw_permission = [
-                'name'        => $permission->name,
+                'slug'        => $permission->slug,
                 'description' => $permission->description,
                 'model'       => $permission->model,
             ];
@@ -98,7 +98,7 @@ class Export extends Command
         $raw_roles = [];
         foreach ($roles as $role) {
             $raw_role = [
-                'name'        => $role->name,
+                'slug'        => $role->slug,
                 'description' => $role->description,
                 'level'       => $role->level,
             ];
@@ -108,8 +108,8 @@ class Export extends Command
 
         $query = $this->db->table('permission_role');
         $query->select([
-            'roles.slug AS role_slug',
-            'permissions.slug AS permission_slug',
+            'roles.slug AS role_name',
+            'permissions.slug AS permission_name',
         ]);
         $query->join('roles', 'role_id', '=', 'roles.id');
         $query->join('permissions', 'permission_id', '=', 'permissions.id');
@@ -119,14 +119,14 @@ class Export extends Command
         $role_constants   = array_flip($this->sanitizeConstants($reflection_roles->getConstants()));
 
         foreach ($query->get() as $permission_role) {
-            $role_slug       = $permission_role->role_slug;
-            $permission_slug = $permission_role->permission_slug;
+            $role_name       = $permission_role->role_name;
+            $permission_name = $permission_role->permission_name;
 
-            if (!empty($role_constants[$role_slug])) {
-                $role_slug = "\\{$this->roleClass}::{$role_constants[$role_slug]}";
+            if (!empty($role_constants[$role_name])) {
+                $role_name = "\\{$this->roleClass}::{$role_constants[$role_name]}";
             }
 
-            $raw_roles[$role_slug]['permissions'][] = $permission_slug;
+            $raw_roles[$role_name]['permissions'][] = $permission_name;
         }
         $acl['import']['roles'] = $raw_roles;
 
