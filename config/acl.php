@@ -22,6 +22,7 @@ return [
     | and point to the exact class for each. Feel free to use whichever
     | files / namespaces, but make sure to extend the original ones,
     | or at least, copy / paste the traits and methods defined.
+    |
     */
 
     'models' => [
@@ -51,31 +52,32 @@ return [
     | Import
     |--------------------------------------------------------------------------
     |
-    | This section manages acl:seed artisan command behavior and act as such.
-    | If enabled is not true, the acl:seed command won't do anything.
+    | This section manages acl:import artisan command behavior and act as such.
+    | If enabled is not true, the acl:import command won't do anything.
     |
-    | The permissions section defines permissions to be stored in database.
-    | Permission properties name, model and description are optional.
-    | If no name is provided, the slug will be used as name.
+    | The permissions section defines permissions to be persisted in database.
+    | Permission properties slug, model and description are not required.
+    | If no slug is provided, it will be generated using name.
     |
     | The roles section defines which roles are to be persisted into database.
-    | Properties name, model, description and permissions are all optional.
-    | Permissions subsection should contain a list of permission slugs
-    | that need to have been defined in the permissions section.
-    | If no name is provided, the slug will be used as name.
+    | Properties slug, model, description and permissions are all optional.
+    | If there is no slug property, the slug will be generated using name.
+    | Permissions subsection should contain a list of permission names.
+    | These names need to have been defined within the permissions.
+    |
     */
     'import' => [
-        'enabled'     => env('ACL_SEEDER_ENABLED', true),
+        'enabled'     => env('ACL_IMPORT_ENABLED', true),
         'permissions' => [
-            'role.edit' => [ // Slug, must follow same naming route notation
-                'name'        => 'Edit role',
+            'role.edit' => [ // Name, must follow same naming route notation
+                'slug'        => 'edit-role',
                 'model'       => Ultraware\Roles\Models\Role::class,
                 'description' => 'Example permission',
             ],
         ],
         'roles'       => [
-            'super_admin' => [ // Slug
-                'name'        => 'Super admin',
+            'super_admin' => [ // Name
+                'slug'        => 'super-admin',
                 'level'       => 1,
                 'description' => 'System Administrator',
                 'permissions' => [
@@ -83,7 +85,7 @@ return [
                 ],
             ],
             'admin'       => [
-                'name'        => 'Admin',
+                'slug'        => 'admin',
                 'level'       => 2,
                 'description' => 'App Administrator',
                 'permissions' => [
