@@ -106,7 +106,7 @@ Run these commands inside your terminal.
     
 Make sure to check Ultraware [Ultraware/Roles](https://github.com/ultraware/roles) package documentation for publish options.
 
-###Environment variables
+### Environment variables
 There are 3 environment variables used in the acl config file (config file doesn't need to be published in order for these to work).
 
 Variable| Default value | Description
